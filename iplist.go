@@ -19,14 +19,18 @@ func (i *iPlist) add(ip string) {
 	}
 }
 
-func (i *iPlist) rem(ip string) {
+func (i *iPlist) rem(ip string) bool {
 	var nrem []string
+	found := false
 	for _, nip := range *i {
-		if nip != ip {
+		if nip == ip {
+			found = true
+		} else {
 			nrem = append(nrem, nip)
 		}
 	}
 	*i = nrem
+	return found
 }
 
 func (i iPlist) String() string {

@@ -50,12 +50,12 @@ func resolve(args resolveArgs) {
 	m.RecursionDesired = true
 
 	// if we fail, sleep longer and longer up to 10 min
-	var failTTL []int64 = make([]int64, len(args.dnscfg.Servers))
+	failTTL := make([]int64, len(args.dnscfg.Servers))
 
 	// we keep track of the last ips we added and remove them if they changed
-	var remIP iPlist
+	var lastIP iPlist
 	for {
-		var addIP iPlist
+		var gotIP iPlist
 
 		if args.verbose > 0 {
 			log.Printf("resolve %s", args.host)
@@ -91,8 +91,8 @@ func resolve(args resolveArgs) {
 
 			for _, ans := range r.Answer {
 				if a, ok := ans.(*dns.A); ok {
-					if args.verbose > 0 {
-						//log.Printf("host %s -> %s, ttl %d\n", host, a.A, a.Hdr.Ttl)
+					if args.verbose > 1 {
+						log.Printf("host %s -> %s, ttl %d\n", args.host, a.A, a.Hdr.Ttl)
 					}
 
 					if a.Hdr.Ttl < uint32(minTTL) {
@@ -100,10 +100,9 @@ func resolve(args resolveArgs) {
 					}
 
 					var ip = a.A.String()
-					addIP.add(ip)
-					remIP.rem(ip)
+					gotIP.add(ip)
 
-					// reset failTTL on success
+					// reset failTTL for this server on any success
 					failTTL[idx] = 0
 				}
 			}
@@ -111,11 +110,30 @@ func resolve(args resolveArgs) {
 
 		// only add/remove if we got IPs to add
 		// for example if networking went down for a second, we don't want to remove old ips
-		if len(addIP) > 0 {
+		if len(gotIP) > 0 {
+			var addIP iPlist
 
-			log.Printf("add %s:%s ttl:%d %s, rem:%s", args.table, args.host, minTTL, strings.Join(addIP, ","), strings.Join(remIP, ","))
-			args.update <- updateArgs{addIP: addIP, remIP: remIP, table: args.table}
-			remIP = addIP
+			var lcpy iPlist
+			lcpy = append(lcpy, lastIP...)
+
+			for _, ip := range gotIP {
+				if lastIP.contains(ip) == false {
+					addIP = append(addIP, ip)
+				} else {
+					lastIP.rem(ip)
+				}
+			}
+
+			if len(addIP) > 0 {
+				log.Printf("add %s:%s ttl:%d %s, rem:%s, l:%s, g:%s", args.table, args.host, minTTL, strings.Join(addIP, ","), strings.Join(lastIP, ","), strings.Join(lcpy, ","), strings.Join(gotIP, ","))
+				args.update <- updateArgs{addIP: addIP, remIP: lastIP, table: args.table}
+				lastIP = gotIP
+			} else {
+				if args.verbose > 1 {
+					log.Printf("no diff %s:%s ttl:%d %s, rem:%s, l:%s, g:%s", args.table, args.host, minTTL, strings.Join(addIP, ","), strings.Join(lastIP, ","), strings.Join(lcpy, ","), strings.Join(gotIP, ","))
+				}
+				lastIP = lcpy
+			}
 
 			// run 1 second after it expires
 			minTTL++
@@ -123,7 +141,10 @@ func resolve(args resolveArgs) {
 
 		select {
 		case <-args.flush:
-			remIP = nil
+			if args.verbose > 1 {
+				log.Printf("flush %s", args.host)
+			}
+			lastIP = nil
 		case <-time.After(time.Duration(minTTL) * time.Second):
 		case <-args.quit:
 			if args.verbose > 0 {

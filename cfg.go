@@ -3,8 +3,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"io/ioutil"
+	"os"
 	"regexp"
 )
 
@@ -26,7 +26,7 @@ func (cfg *config) Parse(path string) error {
 	if err != nil {
 		return err
 	}
-	defer fh.Close()
+	defer func() { _ = fh.Close() }()
 
 	blob, err := ioutil.ReadAll(fh)
 	if err != nil {
