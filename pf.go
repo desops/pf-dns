@@ -26,7 +26,7 @@ func updatePf(uc chan updateArgs) {
 		u := <-uc
 
 		if len(u.remIP) > 0 {
-			args := []string{"-t", u.table, "-T", "rem"}
+			args := []string{"-t", u.table, "-T", "delete"}
 			args = append(args, u.remIP...)
 
 			cmd := exec.Command("/sbin/pfctl", args...)

@@ -25,7 +25,7 @@ func main() {
 	quit := launch(dnscfg, cfg)
 
 	quitSig := make(chan os.Signal, 1)
-	signal.Notify(quitSig, os.Interrupt, os.Kill)
+	signal.Notify(quitSig, os.Interrupt, os.Kill, syscall.SIGTERM)
 
 	reloadSig := make(chan os.Signal, 1)
 	signal.Notify(reloadSig, syscall.SIGHUP)
@@ -77,11 +77,6 @@ func launch(dnscfg *dns.ClientConfig, cfg config) chan struct{} {
 
 	uc := make(chan updateArgs, 100)
 	go updatePf(uc)
-
-	// flush all the tables
-	for table := range cfg.cfg.Tables {
-		flushPf(table)
-	}
 
 	var flush []chan bool
 	for table, hosts := range cfg.cfg.Tables {

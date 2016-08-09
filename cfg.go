@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"io/ioutil"
+	"regexp"
 )
 
 // {"Tables": {"pf_table": ["hostname1", "hostname2"...]}}
@@ -26,10 +28,17 @@ func (cfg *config) Parse(path string) error {
 	}
 	defer fh.Close()
 
-	dec := json.NewDecoder(fh)
+	blob, err := ioutil.ReadAll(fh)
+	if err != nil {
+		return err
+	}
+
+	// poor mans stripping of comments
+	var re = regexp.MustCompile("//.*\n")
+	blob = re.ReplaceAll(blob, []byte(""))
 
 	j := &configJSON{}
-	err = dec.Decode(&j)
+	err = json.Unmarshal(blob, &j)
 	if err != nil {
 		return fmt.Errorf("bad json in file %s: %s", path, err)
 	}

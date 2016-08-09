@@ -50,8 +50,7 @@ func resolve(args resolveArgs) {
 	m.RecursionDesired = true
 
 	// if we fail, sleep longer and longer up to 10 min
-	// XXX does not play nicely when one server is broken :-(
-	var failTTL int64
+	var failTTL []int64 = make([]int64, len(args.dnscfg.Servers))
 
 	// we keep track of the last ips we added and remove them if they changed
 	var remIP iPlist
@@ -65,28 +64,28 @@ func resolve(args resolveArgs) {
 		// recheck every 10 minutes regardless of dns TTL
 		var minTTL int64 = 600
 
-		for _, server := range args.dnscfg.Servers {
+		for idx, server := range args.dnscfg.Servers {
 			r, _, err := c.Exchange(m, net.JoinHostPort(server, args.dnscfg.Port))
 
 			if r == nil {
 				log.Printf("exchange failed %s: %s", args.host, err)
 				// slow down queries till we are retrying every 10 min
-				failTTL += 30
-				if failTTL > 600 {
-					failTTL = 600
+				failTTL[idx] += 30
+				if failTTL[idx] > 600 {
+					failTTL[idx] = 600
 				}
-				minTTL = failTTL
+				minTTL = failTTL[idx]
 				continue
 			}
 
 			if r.Rcode != dns.RcodeSuccess {
 				log.Printf("invalid answer %s", args.host)
 				// slow down queries till we are retrying every 10 min
-				failTTL += 30
-				if failTTL > 600 {
-					failTTL = 600
+				failTTL[idx] += 30
+				if failTTL[idx] > 600 {
+					failTTL[idx] = 600
 				}
-				minTTL = failTTL
+				minTTL = failTTL[idx]
 				continue
 			}
 
@@ -103,19 +102,24 @@ func resolve(args resolveArgs) {
 					var ip = a.A.String()
 					addIP.add(ip)
 					remIP.rem(ip)
+
+					// reset failTTL on success
+					failTTL[idx] = 0
 				}
 			}
 		}
 
-		// reset failTTL on success
-		failTTL = 0
+		// only add/remove if we got IPs to add
+		// for example if networking went down for a second, we don't want to remove old ips
+		if len(addIP) > 0 {
 
-		log.Printf("add %s:%s ttl:%d %s, rem:%s", args.table, args.host, minTTL, strings.Join(addIP, ","), strings.Join(remIP, ","))
-		args.update <- updateArgs{addIP: addIP, remIP: remIP, table: args.table}
-		remIP = addIP
+			log.Printf("add %s:%s ttl:%d %s, rem:%s", args.table, args.host, minTTL, strings.Join(addIP, ","), strings.Join(remIP, ","))
+			args.update <- updateArgs{addIP: addIP, remIP: remIP, table: args.table}
+			remIP = addIP
 
-		// run 1 second after it expires
-		minTTL++
+			// run 1 second after it expires
+			minTTL++
+		}
 
 		select {
 		case <-args.flush:
