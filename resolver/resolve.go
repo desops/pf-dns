@@ -119,26 +119,24 @@ func resolve(args resolveArgs) {
 		if len(gotIP) > 0 {
 			var addIP iPlist
 
-			var lcpy iPlist
-			lcpy = append(lcpy, lastIP...)
-
+			var rem iPlist
+			copy(rem, lastIP)
 			for _, ip := range gotIP {
-				if lastIP.contains(ip) == false {
+				if rem.contains(ip) == false {
 					addIP = append(addIP, ip)
 				} else {
-					lastIP.rem(ip)
+					rem.rem(ip)
 				}
 			}
 
 			if len(addIP) > 0 {
-				log.Printf("add %s:%s ttl:%d %s, rem:%s, l:%s, g:%s", args.table, args.host, minTTL, strings.Join(addIP, ","), strings.Join(lastIP, ","), strings.Join(lcpy, ","), strings.Join(gotIP, ","))
-				args.update <- updateArgs{addIP: addIP, delIP: lastIP, table: args.table}
-				lastIP = gotIP
+				log.Printf("add %s:%s ttl:%d %s, rem:%s, l:%s, g:%s", args.table, args.host, minTTL, addIP, rem, lastIP, gotIP)
+				args.update <- updateArgs{addIP: addIP, delIP: rem, table: args.table}
+				lastIP = rem
 			} else {
 				if args.verbose > 1 {
-					log.Printf("no diff %s:%s ttl:%d %s, rem:%s, l:%s, g:%s", args.table, args.host, minTTL, strings.Join(addIP, ","), strings.Join(lastIP, ","), strings.Join(lcpy, ","), strings.Join(gotIP, ","))
+					log.Printf("no diff %s:%s ttl:%d %s, rem:%s, l:%s, g:%s", args.table, args.host, minTTL, addIP, rem, lastIP, gotIP)
 				}
-				lastIP = lcpy
 			}
 
 			// run 1 second after it expires

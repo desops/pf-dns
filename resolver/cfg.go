@@ -9,7 +9,7 @@ import (
 )
 
 // {"Tables": {"pf_table": ["hostname1", "hostname2"...]}}
-type configJSON struct {
+type config struct {
 	Tables  map[string][]string
 	Flush   uint32
 	Verbose uint8
@@ -17,25 +17,21 @@ type configJSON struct {
 	User    string
 }
 
-type config struct {
-	cfg configJSON
-}
-
-func (cfg *config) Parse(r io.Reader) error {
+func parseConfig(r io.Reader) (config, error) {
 	blob, err := ioutil.ReadAll(r)
 	if err != nil {
-		return err
+		return config{}, err
 	}
 
 	// poor mans stripping of comments
 	var re = regexp.MustCompile("//.*\n")
 	blob = re.ReplaceAll(blob, []byte(""))
 
-	j := &configJSON{}
+	j := config{}
 	err = json.Unmarshal(blob, &j)
 	if err != nil {
-		return fmt.Errorf("bad json in config: %s", err)
+		return j, fmt.Errorf("bad json in config: %s", err)
 	}
-	cfg.cfg = *j
-	return nil
+
+	return j, nil
 }

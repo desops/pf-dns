@@ -3,11 +3,10 @@ package main
 import (
 	"log"
 	"os/exec"
+	"sync"
 
 	"git.cadurx.com/pf_dns_update/ipc"
 )
-
-var resolverStarted bool
 
 func pfIPCInit(i *ipc.IPC) {
 	i.Register("flushTable", flushTable)
@@ -16,8 +15,19 @@ func pfIPCInit(i *ipc.IPC) {
 	i.Register("startup", startup)
 }
 
+var _resolverStarted bool
+var _rlock sync.Mutex
+
+func resolverStarted() bool {
+	_rlock.Lock()
+	defer _rlock.Unlock()
+	return _resolverStarted
+}
+
 func startup(args ipc.Args) {
-	resolverStarted = true
+	_rlock.Lock()
+	defer _rlock.Unlock()
+	_resolverStarted = true
 }
 
 func flushTable(args ipc.Args) {

@@ -11,7 +11,7 @@ import (
 	"os/signal"
 
 	"git.cadurx.com/pf_dns_update/ipc"
-	resolver "git.cadurx.com/pf_dns_update/resolver"
+	"git.cadurx.com/pf_dns_update/resolver"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/kardianos/osext"
@@ -25,6 +25,11 @@ var verbose = flag.Bool("verbose", false, "verbose")
 // are we a resolver process?
 var isResolver = flag.Int("resolver", 0, "internal flag")
 
+type resolverState struct {
+	quit chan error
+	proc *os.Process
+}
+
 func main() {
 	flag.Parse()
 
@@ -37,34 +42,35 @@ func main() {
 	i := &ipc.IPC{}
 	pfIPCInit(i)
 
-	resolverQuit := startResolver(i)
-
 	quitSig := make(chan os.Signal, 1)
 	signal.Notify(quitSig, os.Interrupt, os.Kill, syscall.SIGTERM)
 	reloadSig := make(chan os.Signal, 1)
 	signal.Notify(reloadSig, syscall.SIGHUP)
 
+	resolverState := startResolver(i)
 	watcher := watchFiles()
+
 	for {
 		select {
 		case s := <-quitSig:
 			log.Fatalf("exiting: got sig %s", s)
 		case s := <-reloadSig:
 			log.Printf("got sig %s, reloading config", s)
+			resolverState.proc.Kill()
 		case evt := <-watcher.Events:
 			if evt.Name == *cfgPath || evt.Name == *resolvConf {
 				if evt.Op&fsnotify.Write == fsnotify.Write {
 					log.Printf("%s modified, reloading", evt.Name)
-					//quit = reload(quit)
+					resolverState.proc.Kill()
 				}
 			}
 		case err := <-watcher.Errors:
 			log.Printf("watcher err: %s", err)
-		case err := <-resolverQuit:
+		case err := <-resolverState.quit:
 			// set by a startup IPC message in pf.go
-			if resolverStarted {
+			if resolverStarted() {
 				log.Printf("resolver died: %s", err)
-				resolverQuit = startResolver(i)
+				resolverState = startResolver(i)
 			} else {
 				log.Fatalf("resolver died in init %s", err)
 			}
@@ -106,7 +112,7 @@ func reload(oldQuit chan struct{}) chan struct{} {
 }
 */
 
-func startResolver(i *ipc.IPC) chan error {
+func startResolver(i *ipc.IPC) resolverState {
 	args := os.Args
 	args = append(args, "-resolver", fmt.Sprintf("%d", os.Getpid()))
 
@@ -151,23 +157,29 @@ func startResolver(i *ipc.IPC) chan error {
 		log.Fatal(err)
 	}
 
-	// closed on exit
+	// closed on exit so child can detect parent death
 	_ = wp
 
-	// dont need anymore
-	rp.Close()
-	wcomp.Close()
+	// not needed any longer
+	_ = rp.Close()
+	_ = wcomp.Close()
+	_ = conf.Close()
+	err = resolv.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	go i.Reader(rcomp)
 
 	var childQuit = make(chan error)
 	go func() {
 		_, err := proc.Wait()
-		// done with this
-		// XX races with i.Reader!
-		rcomp.Close()
+		wp.Close()
 		childQuit <- err
 	}()
 
-	return childQuit
+	return resolverState{
+		quit: childQuit,
+		proc: proc,
+	}
 }

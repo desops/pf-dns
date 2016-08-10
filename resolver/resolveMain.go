@@ -12,10 +12,11 @@ import (
 	"git.cadurx.com/pf_dns_update/ipc"
 )
 
+// Main entry point for resolver subprocess
 func Main() {
+
 	quitSig := make(chan os.Signal, 1)
 	signal.Notify(quitSig, os.Interrupt, os.Kill, syscall.SIGTERM)
-
 	reloadSig := make(chan os.Signal, 1)
 	signal.Notify(reloadSig, syscall.SIGHUP)
 
@@ -47,9 +48,11 @@ func run() chan bool {
 	if err != nil {
 		i.WriteFatal(err)
 	}
+	_ = resolv.Close()
+	_ = config.Close()
 
-	if len(cfg.cfg.Chroot) > 0 {
-		err := syscall.Chroot(cfg.cfg.Chroot)
+	if len(cfg.Chroot) > 0 {
+		err := syscall.Chroot(cfg.Chroot)
 		if err != nil {
 			i.WriteFatal(err)
 		}
@@ -59,8 +62,8 @@ func run() chan bool {
 		}
 	}
 
-	if len(cfg.cfg.User) > 0 {
-		u, err := user.Lookup(cfg.cfg.User)
+	if len(cfg.User) > 0 {
+		u, err := user.Lookup(cfg.User)
 		if err != nil {
 			i.WriteFatal(err)
 		}
@@ -89,11 +92,11 @@ func run() chan bool {
 
 	// startup complete
 	ia := ipc.Args{
-		Sub: "startup",
+		Func: "startup",
 	}
 	i.Call(ia)
 
-	for table, hosts := range cfg.cfg.Tables {
+	for table, hosts := range cfg.Tables {
 		//if *noFlush == false {
 		flushTable(i, table)
 		//}
@@ -104,7 +107,7 @@ func run() chan bool {
 				quit:    parentQuit,
 				table:   table,
 				host:    host,
-				verbose: cfg.cfg.Verbose,
+				verbose: cfg.Verbose,
 				dnscfg:  dnscfg,
 			}
 			go resolve(args)
@@ -123,7 +126,7 @@ func updatePf(i *ipc.IPC, uc chan updateArgs) {
 			del = append(del, u.table)
 			del = append(del, u.delIP...)
 			args := ipc.Args{
-				Sub:  "delToTable",
+				Func: "delToTable",
 				Argv: del,
 			}
 			i.Call(args)
@@ -134,7 +137,7 @@ func updatePf(i *ipc.IPC, uc chan updateArgs) {
 			add = append(add, u.table)
 			add = append(add, u.addIP...)
 			args := ipc.Args{
-				Sub:  "addToTable",
+				Func: "addToTable",
 				Argv: add,
 			}
 			i.Call(args)
@@ -148,16 +151,15 @@ func loadConfig(dnsFile *os.File, cfgFile *os.File) (resolvConf, config, error) 
 		return resolvConf{}, config{}, err
 	}
 
-	cfg := config{}
-	err = cfg.Parse(cfgFile)
+	cfg, err := parseConfig(cfgFile)
 	if err != nil {
 		return resolvConf{}, config{}, err
 	}
 	//if *verbose {
-	//	cfg.cfg.Verbose = 2
+	//	conf.Verbose = 2
 	//}
-	if cfg.cfg.Verbose > 0 {
-		log.Printf("%+v", cfg.cfg)
+	if cfg.Verbose > 0 {
+		log.Printf("%+v", cfg)
 	}
 
 	return dnscfg, cfg, nil
@@ -165,7 +167,7 @@ func loadConfig(dnsFile *os.File, cfgFile *os.File) (resolvConf, config, error) 
 
 func flushTable(i *ipc.IPC, table string) {
 	args := ipc.Args{
-		Sub:  "flushTable",
+		Func: "flushTable",
 		Argv: []string{table},
 	}
 	i.Call(args)
