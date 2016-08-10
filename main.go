@@ -2,57 +2,72 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"path/filepath"
 	"syscall"
 
 	"os"
 	"os/signal"
-	"time"
+
+	"git.cadurx.com/pf_dns_update/ipc"
+	resolver "git.cadurx.com/pf_dns_update/resolver"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/miekg/dns"
+	"github.com/kardianos/osext"
 )
 
-var cfgPath = flag.String("cfg", "./pf_update_dns.json", "config file path")
+var cfgPath = flag.String("cfg", "./pf_dns_update.json", "config file path")
 var noFlush = flag.Bool("noflush", false, "don't flush tables")
 var resolvConf = flag.String("resolv", "/etc/resolv.conf", "resolv.conf path")
 var verbose = flag.Bool("verbose", false, "verbose")
 
+// are we a resolver process?
+var isResolver = flag.Int("resolver", 0, "internal flag")
+
 func main() {
 	flag.Parse()
 
-	dnscfg, cfg, err := loadConfig()
-	if err != nil {
-		log.Fatalf("%s", err)
+	// resolver suubprocess?
+	if *isResolver > 0 {
+		resolver.Main()
+		return
 	}
 
-	quit := launch(dnscfg, cfg)
+	i := &ipc.IPC{}
+	pfIPCInit(i)
 
-	watcher := watchFiles()
+	resolverQuit := startResolver(i)
 
 	quitSig := make(chan os.Signal, 1)
 	signal.Notify(quitSig, os.Interrupt, os.Kill, syscall.SIGTERM)
-
 	reloadSig := make(chan os.Signal, 1)
 	signal.Notify(reloadSig, syscall.SIGHUP)
 
+	watcher := watchFiles()
 	for {
 		select {
 		case s := <-quitSig:
 			log.Fatalf("exiting: got sig %s", s)
 		case s := <-reloadSig:
 			log.Printf("got sig %s, reloading config", s)
-			quit = reload(quit)
 		case evt := <-watcher.Events:
 			if evt.Name == *cfgPath || evt.Name == *resolvConf {
 				if evt.Op&fsnotify.Write == fsnotify.Write {
 					log.Printf("%s modified, reloading", evt.Name)
-					quit = reload(quit)
+					//quit = reload(quit)
 				}
 			}
 		case err := <-watcher.Errors:
 			log.Printf("watcher err: %s", err)
+		case err := <-resolverQuit:
+			// set by a startup IPC message in pf.go
+			if resolverStarted {
+				log.Printf("resolver died: %s", err)
+				resolverQuit = startResolver(i)
+			} else {
+				log.Fatalf("resolver died in init %s", err)
+			}
 		}
 	}
 }
@@ -76,6 +91,7 @@ func watchFiles() *fsnotify.Watcher {
 	return watcher
 }
 
+/*
 func reload(oldQuit chan struct{}) chan struct{} {
 	dnscfg, cfg, err := loadConfig()
 	if err != nil {
@@ -88,82 +104,70 @@ func reload(oldQuit chan struct{}) chan struct{} {
 
 	return launch(dnscfg, cfg)
 }
+*/
 
-func loadConfig() (*dns.ClientConfig, config, error) {
-	dnscfg, err := dns.ClientConfigFromFile(*resolvConf)
+func startResolver(i *ipc.IPC) chan error {
+	args := os.Args
+	args = append(args, "-resolver", fmt.Sprintf("%d", os.Getpid()))
+
+	rp, wp, err := os.Pipe()
 	if err != nil {
-		return nil, config{}, err
+		log.Fatal(err)
 	}
-
-	cfg := config{}
-	err = cfg.Parse(*cfgPath)
+	rcomp, wcomp, err := os.Pipe()
 	if err != nil {
-		return nil, config{}, err
-	}
-	if *verbose {
-		cfg.cfg.Verbose = 2
-	}
-	if cfg.cfg.Verbose > 0 {
-		log.Printf("%+v", cfg.cfg)
+		log.Fatal(err)
 	}
 
-	return dnscfg, cfg, nil
-}
-
-func launch(dnscfg *dns.ClientConfig, cfg config) chan struct{} {
-	quit := make(chan struct{})
-
-	uc := make(chan updateArgs, 100)
-	go updatePf(uc)
-
-	var flush []chan bool
-	for table, hosts := range cfg.cfg.Tables {
-
-		if *noFlush == false {
-			flushPf(table)
-		}
-
-		for _, host := range hosts {
-			args := resolveArgs{
-				update:  uc,
-				flush:   make(chan bool),
-				quit:    quit,
-				table:   table,
-				host:    host,
-				verbose: cfg.cfg.Verbose,
-				dnscfg:  dnscfg,
-			}
-			flush = append(flush, args.flush)
-			go resolve(args)
-		}
+	resolv, err := os.Open(*resolvConf)
+	if err != nil {
+		log.Fatal(err)
+	}
+	conf, err := os.Open(*cfgPath)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	if cfg.cfg.Flush > 0 && *noFlush == false {
-		go flusher(flush, quit, cfg)
+	attr := &os.ProcAttr{
+		Files: []*os.File{
+			os.Stdin,
+			os.Stdout,
+			os.Stderr,
+			// should be stdin but gets screwed on linux or something
+			rp,
+			wcomp,
+			resolv,
+			conf,
+		},
 	}
 
-	return quit
-}
-
-func flusher(flush []chan bool, quit chan struct{}, cfg config) {
-	for {
-		select {
-		case <-quit:
-			return
-		case <-time.After(time.Duration(cfg.cfg.Flush) * time.Second):
-			if cfg.cfg.Verbose > 0 {
-				log.Printf("Flush interval expired")
-			}
-		}
-
-		// flush the tables
-		for table := range cfg.cfg.Tables {
-			flushPf(table)
-		}
-
-		// signal all the resolvers to re-resolve
-		for _, f := range flush {
-			f <- true
-		}
+	exe, err := osext.Executable()
+	if err != nil {
+		log.Fatal(err)
 	}
+
+	proc, err := os.StartProcess(exe, args, attr)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// closed on exit
+	_ = wp
+
+	// dont need anymore
+	rp.Close()
+	wcomp.Close()
+
+	go i.Reader(rcomp)
+
+	var childQuit = make(chan error)
+	go func() {
+		_, err := proc.Wait()
+		// done with this
+		// XX races with i.Reader!
+		rcomp.Close()
+		childQuit <- err
+	}()
+
+	return childQuit
 }

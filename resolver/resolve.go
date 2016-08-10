@@ -1,4 +1,4 @@
-package main
+package resolver
 
 import (
 	"log"
@@ -9,12 +9,18 @@ import (
 	"github.com/miekg/dns"
 )
 
+type updateArgs struct {
+	table string
+	addIP iPlist
+	delIP iPlist
+}
+
 type resolveArgs struct {
 	update chan updateArgs
 	flush  chan bool
-	quit   chan struct{}
+	quit   chan bool
 
-	dnscfg *dns.ClientConfig
+	dnscfg resolvConf
 
 	table string
 	host  string
@@ -30,7 +36,7 @@ func resolve(args resolveArgs) {
 			addIP.add(args.host)
 
 			log.Printf("add %s:%s", args.table, strings.Join(addIP, ","))
-			args.update <- updateArgs{addIP: addIP, remIP: nil, table: args.table}
+			args.update <- updateArgs{addIP: addIP, delIP: nil, table: args.table}
 
 			select {
 			case <-args.flush:
@@ -50,7 +56,7 @@ func resolve(args resolveArgs) {
 	m.RecursionDesired = true
 
 	// if we fail, sleep longer and longer up to 10 min
-	failTTL := make([]int64, len(args.dnscfg.Servers))
+	failTTL := make([]int64, len(args.dnscfg.servers))
 
 	// we keep track of the last ips we added and remove them if they changed
 	var lastIP iPlist
@@ -64,8 +70,8 @@ func resolve(args resolveArgs) {
 		// recheck every 10 minutes regardless of dns TTL
 		var minTTL int64 = 600
 
-		for idx, server := range args.dnscfg.Servers {
-			r, _, err := c.Exchange(m, net.JoinHostPort(server, args.dnscfg.Port))
+		for idx, server := range args.dnscfg.servers {
+			r, _, err := c.Exchange(m, net.JoinHostPort(server, "53"))
 
 			if r == nil {
 				log.Printf("exchange failed %s: %s", args.host, err)
@@ -126,7 +132,7 @@ func resolve(args resolveArgs) {
 
 			if len(addIP) > 0 {
 				log.Printf("add %s:%s ttl:%d %s, rem:%s, l:%s, g:%s", args.table, args.host, minTTL, strings.Join(addIP, ","), strings.Join(lastIP, ","), strings.Join(lcpy, ","), strings.Join(gotIP, ","))
-				args.update <- updateArgs{addIP: addIP, remIP: lastIP, table: args.table}
+				args.update <- updateArgs{addIP: addIP, delIP: lastIP, table: args.table}
 				lastIP = gotIP
 			} else {
 				if args.verbose > 1 {

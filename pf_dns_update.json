@@ -3,5 +3,5 @@
 		"allow_http": ["google.com", "yahoo.com", "maps.googleapis.com", "127.0.0.1", "secure.cadurx.com"]
 	},
 	"Flush": 86400,
-	"Verbose": 1
+	"Verbose": 0
 }

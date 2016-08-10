@@ -1,10 +1,10 @@
-package main
+package resolver
 
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
-	"os"
 	"regexp"
 )
 
@@ -13,22 +13,16 @@ type configJSON struct {
 	Tables  map[string][]string
 	Flush   uint32
 	Verbose uint8
+	Chroot  string
+	User    string
 }
 
 type config struct {
 	cfg configJSON
 }
 
-func (cfg *config) Parse(path string) error {
-	debugf("parsing config: %s", path)
-
-	fh, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = fh.Close() }()
-
-	blob, err := ioutil.ReadAll(fh)
+func (cfg *config) Parse(r io.Reader) error {
+	blob, err := ioutil.ReadAll(r)
 	if err != nil {
 		return err
 	}
@@ -40,7 +34,7 @@ func (cfg *config) Parse(path string) error {
 	j := &configJSON{}
 	err = json.Unmarshal(blob, &j)
 	if err != nil {
-		return fmt.Errorf("bad json in file %s: %s", path, err)
+		return fmt.Errorf("bad json in config: %s", err)
 	}
 	cfg.cfg = *j
 	return nil

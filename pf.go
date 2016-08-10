@@ -3,48 +3,58 @@ package main
 import (
 	"log"
 	"os/exec"
+
+	"git.cadurx.com/pf_dns_update/ipc"
 )
 
-type updateArgs struct {
-	addIP iPlist
-	remIP iPlist
-	table string
+var resolverStarted bool
+
+func pfIPCInit(i *ipc.IPC) {
+	i.Register("flushTable", flushTable)
+	i.Register("addToTable", addToTable)
+	i.Register("delToTable", delToTable)
+	i.Register("startup", startup)
 }
 
-func flushPf(table string) {
-	log.Printf("flushing table %s", table)
+func startup(args ipc.Args) {
+	resolverStarted = true
+}
 
-	cmd := exec.Command("/sbin/pfctl", "-q", "-t", table, "-T", "flush")
+func flushTable(args ipc.Args) {
+	log.Printf("flushing table %s", args.Argv[0])
+
+	cmd := exec.Command("/sbin/pfctl", "-q", "-t", args.Argv[0], "-T", "flush")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Printf("pfctl %s: %s", err, out)
 	}
 }
 
-func updatePf(uc chan updateArgs) {
-	for {
-		u := <-uc
+func delToTable(args ipc.Args) {
+	if len(args.Argv) <= 1 {
+		return
+	}
 
-		if len(u.remIP) > 0 {
-			args := []string{"-t", u.table, "-T", "delete"}
-			args = append(args, u.remIP...)
+	cargs := []string{"-t", args.Argv[0], "-T", "delete"}
+	cargs = append(cargs, args.Argv[1:]...)
 
-			cmd := exec.Command("/sbin/pfctl", args...)
-			out, err := cmd.CombinedOutput()
-			if err != nil {
-				log.Printf("pfctl %s %s: %s", args, err, out)
-			}
-		}
+	cmd := exec.Command("/sbin/pfctl", cargs...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("pfctl %s %s: %s", cargs, err, out)
+	}
+}
 
-		if len(u.addIP) > 0 {
-			args := []string{"-t", u.table, "-T", "add"}
-			args = append(args, u.addIP...)
+func addToTable(args ipc.Args) {
+	if len(args.Argv) <= 1 {
+		return
+	}
+	cargs := []string{"-t", args.Argv[0], "-T", "add"}
+	cargs = append(cargs, args.Argv[1:]...)
 
-			cmd := exec.Command("/sbin/pfctl", args...)
-			out, err := cmd.CombinedOutput()
-			if err != nil {
-				log.Printf("pfctl %s %s: %s", args, err, out)
-			}
-		}
+	cmd := exec.Command("/sbin/pfctl", cargs...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("pfctl %s %s: %s", cargs, err, out)
 	}
 }
