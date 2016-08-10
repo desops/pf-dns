@@ -59,7 +59,7 @@ func resolve(args resolveArgs) {
 	failTTL := make([]int64, len(args.dnscfg.servers))
 
 	// we keep track of the last ips we added and remove them if they changed
-	var lastIP iPlist
+	var curIP iPlist
 	for {
 		var gotIP iPlist
 
@@ -118,24 +118,27 @@ func resolve(args resolveArgs) {
 		// for example if networking went down for a second, we don't want to remove old ips
 		if len(gotIP) > 0 {
 			var addIP iPlist
+			var delIP iPlist
 
-			var rem iPlist
-			copy(rem, lastIP)
+			delIP = append(delIP, curIP...)
 			for _, ip := range gotIP {
-				if rem.contains(ip) == false {
+				// if we added that previously IP, don't add it or remove it
+				if delIP.contains(ip) == false {
 					addIP = append(addIP, ip)
 				} else {
-					rem.rem(ip)
+					delIP.rem(ip)
 				}
 			}
 
 			if len(addIP) > 0 {
-				log.Printf("add %s:%s ttl:%d %s, rem:%s, l:%s, g:%s", args.table, args.host, minTTL, addIP, rem, lastIP, gotIP)
-				args.update <- updateArgs{addIP: addIP, delIP: rem, table: args.table}
-				lastIP = rem
+				log.Printf("add %s:%s ttl:%d %s, del:%s, l:%s, g:%s", args.table, args.host, minTTL, addIP, delIP, curIP, gotIP)
+				args.update <- updateArgs{addIP: addIP, delIP: delIP, table: args.table}
+
+				// update our curIP to all the ones we "got" this round
+				curIP = gotIP
 			} else {
 				if args.verbose > 1 {
-					log.Printf("no diff %s:%s ttl:%d %s, rem:%s, l:%s, g:%s", args.table, args.host, minTTL, addIP, rem, lastIP, gotIP)
+					log.Printf("no diff %s:%s ttl:%d %s, del:%s, l:%s, g:%s", args.table, args.host, minTTL, addIP, delIP, curIP, gotIP)
 				}
 			}
 
@@ -148,7 +151,7 @@ func resolve(args resolveArgs) {
 			if args.verbose > 1 {
 				log.Printf("flush %s", args.host)
 			}
-			lastIP = nil
+			curIP = nil
 		case <-time.After(time.Duration(minTTL) * time.Second):
 		case <-args.quit:
 			if args.verbose > 0 {

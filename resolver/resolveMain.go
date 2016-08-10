@@ -1,26 +1,28 @@
 package resolver
 
 import (
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
 	"os/signal"
 	"os/user"
+	"runtime"
 	"strconv"
 	"syscall"
 
 	"git.cadurx.com/pf_dns_update/ipc"
+	"git.cadurx.com/pf_dns_update/pledge"
 )
 
 // Main entry point for resolver subprocess
-func Main() {
-
+func Main(noChroot bool) {
 	quitSig := make(chan os.Signal, 1)
 	signal.Notify(quitSig, os.Interrupt, os.Kill, syscall.SIGTERM)
 	reloadSig := make(chan os.Signal, 1)
 	signal.Notify(reloadSig, syscall.SIGHUP)
 
-	parentQuit := run()
+	parentQuit := run(noChroot)
 	for {
 		select {
 		case s := <-quitSig:
@@ -33,7 +35,7 @@ func Main() {
 	}
 }
 
-func run() chan bool {
+func run(noChroot bool) chan bool {
 	parentQuit := make(chan bool)
 
 	parentPipe := os.NewFile(3, "read parent pipe")
@@ -51,34 +53,37 @@ func run() chan bool {
 	_ = resolv.Close()
 	_ = config.Close()
 
-	if len(cfg.Chroot) > 0 {
-		err := syscall.Chroot(cfg.Chroot)
+	if !noChroot {
+		u, err := user.Lookup("nobody")
 		if err != nil {
 			i.WriteFatal(err)
+		}
+
+		err = syscall.Chroot("/var/empty")
+		if err != nil {
+			i.WriteFatal(fmt.Errorf("could not chroot /var/empty: %s", err))
 		}
 		err = syscall.Chdir("/")
 		if err != nil {
-			i.WriteFatal(err)
+			i.WriteFatal(fmt.Errorf("could not chdir /: %s", err))
+		}
+
+		// well that's dumb, this don't work in linux
+		if runtime.GOOS != "linux" {
+			id, _ := strconv.Atoi(u.Gid)
+			err = syscall.Setgid(id)
+			if err != nil {
+				i.WriteFatal(fmt.Errorf("setgid: %s", err))
+			}
+			id, _ = strconv.Atoi(u.Uid)
+			err = syscall.Setuid(id)
+			if err != nil {
+				i.WriteFatal(fmt.Errorf("setuid: %s", err))
+			}
 		}
 	}
 
-	if len(cfg.User) > 0 {
-		u, err := user.Lookup(cfg.User)
-		if err != nil {
-			i.WriteFatal(err)
-		}
-
-		id, _ := strconv.Atoi(u.Gid)
-		err = syscall.Setgid(id)
-		if err != nil {
-			i.WriteFatal(err)
-		}
-		id, _ = strconv.Atoi(u.Uid)
-		err = syscall.Setuid(id)
-		if err != nil {
-			i.WriteFatal(err)
-		}
-	}
+	pledge.Pledge("stdio inet", nil)
 
 	go func() {
 		for {

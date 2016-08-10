@@ -13,8 +13,6 @@ type config struct {
 	Tables  map[string][]string
 	Flush   uint32
 	Verbose uint8
-	Chroot  string
-	User    string
 }
 
 func parseConfig(r io.Reader) (config, error) {

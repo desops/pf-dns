@@ -11,6 +11,7 @@ import (
 	"os/signal"
 
 	"git.cadurx.com/pf_dns_update/ipc"
+	"git.cadurx.com/pf_dns_update/pledge"
 	"git.cadurx.com/pf_dns_update/resolver"
 
 	"github.com/fsnotify/fsnotify"
@@ -21,6 +22,7 @@ var cfgPath = flag.String("cfg", "./pf_dns_update.json", "config file path")
 var noFlush = flag.Bool("noflush", false, "don't flush tables")
 var resolvConf = flag.String("resolv", "/etc/resolv.conf", "resolv.conf path")
 var verbose = flag.Bool("verbose", false, "verbose")
+var noChroot = flag.Bool("nochroot", false, "disable chroot/setuid(nobody)")
 
 // are we a resolver process?
 var isResolver = flag.Int("resolver", 0, "internal flag")
@@ -35,7 +37,7 @@ func main() {
 
 	// resolver suubprocess?
 	if *isResolver > 0 {
-		resolver.Main()
+		resolver.Main(*noChroot)
 		return
 	}
 
@@ -49,6 +51,8 @@ func main() {
 
 	resolverState := startResolver(i)
 	watcher := watchFiles()
+
+	pledge.Pledge("stdio proc exec pf", nil)
 
 	for {
 		select {
