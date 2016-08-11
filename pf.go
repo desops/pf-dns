@@ -15,6 +15,11 @@ func pfIPCInit(i *ipc.IPC) {
 	i.Register("startup", startup)
 }
 
+// the resolver sends a startup message if it could start and process the config
+// if there were syntax errors or somesuch, we want to exit. which we detect by
+// seeing if the resolverStarted() in our main process, if so we respawn it,
+// otherwise we will assume we couldn't start the resolver and treat it as a
+// fatal error in the main process
 var _resolverStarted bool
 var _rlock sync.Mutex
 

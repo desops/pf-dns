@@ -37,7 +37,7 @@ func (i *IPC) Reader(r *os.File) {
 			if ok {
 				args := Args{}
 				for i, a := range fields {
-					if i == 0 {
+					if i == 0 || len(string(a)) == 0 {
 						continue
 					}
 					args.Argv = append(args.Argv, string(a))
@@ -54,5 +54,5 @@ func (i *IPC) Reader(r *os.File) {
 
 	// we own r, so close it
 	_ = r.Close()
-	log.Printf("ipc reader done")
+	//log.Printf("ipc reader done")
 }

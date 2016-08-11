@@ -11,7 +11,6 @@ import (
 	"os/signal"
 
 	"git.cadurx.com/pf_dns_update/ipc"
-	"git.cadurx.com/pf_dns_update/pledge"
 	"git.cadurx.com/pf_dns_update/resolver"
 
 	"github.com/fsnotify/fsnotify"
@@ -35,12 +34,15 @@ type resolverState struct {
 func main() {
 	flag.Parse()
 
-	// resolver suubprocess?
+	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+
+	// resolver subprocess?
 	if *isResolver > 0 {
 		resolver.Main(*noChroot)
 		return
 	}
 
+	// register IPC callbacks for resolver subprocess to call
 	i := &ipc.IPC{}
 	pfIPCInit(i)
 
@@ -49,10 +51,14 @@ func main() {
 	reloadSig := make(chan os.Signal, 1)
 	signal.Notify(reloadSig, syscall.SIGHUP)
 
+	// start the resolver subprocess
 	resolverState := startResolver(i)
+
+	// reload if resolvConf or cfgFile files change
 	watcher := watchFiles()
 
-	pledge.Pledge("stdio proc exec pf", nil)
+	// we need __set_tcb and we have no way to get it :-(
+	// pledge.Pledge("stdio proc exec rpath", nil)
 
 	for {
 		select {
@@ -60,11 +66,15 @@ func main() {
 			log.Fatalf("exiting: got sig %s", s)
 		case s := <-reloadSig:
 			log.Printf("got sig %s, reloading config", s)
+
+			// will respawn when we get <-resolverState.quit
 			resolverState.proc.Kill()
 		case evt := <-watcher.Events:
 			if evt.Name == *cfgPath || evt.Name == *resolvConf {
 				if evt.Op&fsnotify.Write == fsnotify.Write {
 					log.Printf("%s modified, reloading", evt.Name)
+
+					// will respawn when we get <-resolverState.quit
 					resolverState.proc.Kill()
 				}
 			}
@@ -91,44 +101,34 @@ func watchFiles() *fsnotify.Watcher {
 	// we have to watch on the dir, editors rename/remove the old file
 	err = watcher.Add(filepath.Dir(*resolvConf))
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("can't watch %s: %s", *resolvConf, err)
 	}
 	err = watcher.Add(filepath.Dir(*cfgPath))
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("can't watch %s: %s", *cfgPath, err)
 	}
 
 	return watcher
 }
 
-/*
-func reload(oldQuit chan struct{}) chan struct{} {
-	dnscfg, cfg, err := loadConfig()
-	if err != nil {
-		log.Printf("error loading config: %s", err)
-		// got an error? do nothing
-		return oldQuit
-	}
-
-	close(oldQuit)
-
-	return launch(dnscfg, cfg)
-}
-*/
-
 func startResolver(i *ipc.IPC) resolverState {
 	args := os.Args
 	args = append(args, "-resolver", fmt.Sprintf("%d", os.Getpid()))
 
+	// pipes for parent/child death detection
+	// if the parent dies, the child will detect it via rp and exit
 	rp, wp, err := os.Pipe()
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// ipc pipes
 	rcomp, wcomp, err := os.Pipe()
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	// open config and pass it to resolverProcess to parse after dropping privs/chrooting
 	resolv, err := os.Open(*resolvConf)
 	if err != nil {
 		log.Fatal(err)
@@ -168,18 +168,22 @@ func startResolver(i *ipc.IPC) resolverState {
 	_ = rp.Close()
 	_ = wcomp.Close()
 	_ = conf.Close()
-	err = resolv.Close()
-	if err != nil {
-		log.Fatal(err)
-	}
+	_ = resolv.Close()
 
+	// start processing IPC for our subprocess
 	go i.Reader(rcomp)
 
+	// detect child death
 	var childQuit = make(chan error)
 	go func() {
-		_, err := proc.Wait()
+		ps, err := proc.Wait()
 		wp.Close()
-		childQuit <- err
+
+		if err == nil {
+			childQuit <- fmt.Errorf("%s", ps.String())
+		} else {
+			childQuit <- err
+		}
 	}()
 
 	return resolverState{

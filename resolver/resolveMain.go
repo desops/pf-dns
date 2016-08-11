@@ -12,7 +12,6 @@ import (
 	"syscall"
 
 	"git.cadurx.com/pf_dns_update/ipc"
-	"git.cadurx.com/pf_dns_update/pledge"
 )
 
 // Main entry point for resolver subprocess
@@ -43,15 +42,9 @@ func run(noChroot bool) chan bool {
 	resolv := os.NewFile(5, "resolvConfFile")
 	config := os.NewFile(6, "configFile")
 
+	// send IPC to our parent
 	i := &ipc.IPC{}
 	i.Writer(parentWrite)
-
-	dnscfg, cfg, err := loadConfig(resolv, config)
-	if err != nil {
-		i.WriteFatal(err)
-	}
-	_ = resolv.Close()
-	_ = config.Close()
 
 	if !noChroot {
 		u, err := user.Lookup("nobody")
@@ -83,7 +76,16 @@ func run(noChroot bool) chan bool {
 		}
 	}
 
-	pledge.Pledge("stdio inet", nil)
+	// needs __set_tcp :-(
+	//pledge.Pledge("stdio inet", nil)
+
+	// all chrooted, try parsing config
+	dnscfg, cfg, err := loadConfig(resolv, config)
+	if err != nil {
+		i.WriteFatal(err)
+	}
+	_ = resolv.Close()
+	_ = config.Close()
 
 	go func() {
 		for {
@@ -95,7 +97,7 @@ func run(noChroot bool) chan bool {
 	uc := make(chan updateArgs, 100)
 	go updatePf(i, uc)
 
-	// startup complete
+	// startup complete, let our parent know so it will respawn us if we die
 	ia := ipc.Args{
 		Func: "startup",
 	}
