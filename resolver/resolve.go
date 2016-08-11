@@ -9,16 +9,11 @@ import (
 	"github.com/miekg/dns"
 )
 
-type updateArgs struct {
-	table string
-	addIP iPlist
-	delIP iPlist
-}
-
 type resolveArgs struct {
-	update chan updateArgs
-	flush  chan bool
-	quit   chan bool
+	add   chan updateArgs
+	del   chan updateArgs
+	flush chan bool
+	quit  chan bool
 
 	dnscfg resolvConf
 
@@ -158,7 +153,11 @@ func _updatePf(args resolveArgs, minTTL int64, gotIP iPlist, curIP iPlist) iPlis
 		log.Printf("add %s:%s ttl:%d %s, del:%s, l:%s, g:%s", args.table, args.host, minTTL, addIP, delIP, curIP, gotIP)
 
 		// send off IPC message to parent
-		args.update <- updateArgs{addIP: addIP, delIP: delIP, table: args.table}
+		args.add <- updateArgs{ips: addIP, table: args.table}
+
+		if len(delIP) > 0 {
+			args.del <- updateArgs{ips: delIP, table: args.table}
+		}
 
 		// update our curIP to all the ones we "got" this round
 		return gotIP
@@ -178,7 +177,7 @@ func doStatic(args resolveArgs) {
 		addIP.add(args.host)
 
 		log.Printf("add %s:%s", args.table, strings.Join(addIP, ","))
-		args.update <- updateArgs{addIP: addIP, delIP: nil, table: args.table}
+		args.add <- updateArgs{ips: addIP, table: args.table}
 
 		select {
 		case <-args.flush:

@@ -10,9 +10,10 @@ import (
 
 // {"Tables": {"pf_table": ["hostname1", "hostname2"...]}}
 type config struct {
-	Tables  map[string][]string
-	Flush   uint32
-	Verbose uint8
+	Tables      map[string][]string
+	Flush       uint32
+	Verbose     uint8
+	DeleteAfter string
 }
 
 func parseConfig(r io.Reader) (config, error) {

@@ -94,8 +94,11 @@ func run(noChroot bool) chan bool {
 		}
 	}()
 
-	uc := make(chan updateArgs, 100)
-	go updatePf(i, uc)
+	add := make(chan updateArgs, 100)
+	go addPf(i, add)
+
+	del := make(chan updateArgs, 100)
+	go delPf(i, cfg, del)
 
 	// startup complete, let our parent know so it will respawn us if we die
 	ia := ipc.Args{
@@ -110,7 +113,8 @@ func run(noChroot bool) chan bool {
 
 		for _, host := range hosts {
 			args := resolveArgs{
-				update:  uc,
+				add:     add,
+				del:     del,
 				quit:    parentQuit,
 				table:   table,
 				host:    host,
@@ -122,34 +126,6 @@ func run(noChroot bool) chan bool {
 	}
 
 	return parentQuit
-}
-
-func updatePf(i *ipc.IPC, uc chan updateArgs) {
-	for {
-		u := <-uc
-
-		if len(u.delIP) > 0 {
-			var del []string
-			del = append(del, u.table)
-			del = append(del, u.delIP...)
-			args := ipc.Args{
-				Func: "delToTable",
-				Argv: del,
-			}
-			i.Call(args)
-		}
-
-		if len(u.addIP) > 0 {
-			var add []string
-			add = append(add, u.table)
-			add = append(add, u.addIP...)
-			args := ipc.Args{
-				Func: "addToTable",
-				Argv: add,
-			}
-			i.Call(args)
-		}
-	}
 }
 
 func loadConfig(dnsFile *os.File, cfgFile *os.File) (resolvConf, config, error) {
@@ -170,12 +146,4 @@ func loadConfig(dnsFile *os.File, cfgFile *os.File) (resolvConf, config, error) 
 	}
 
 	return dnscfg, cfg, nil
-}
-
-func flushTable(i *ipc.IPC, table string) {
-	args := ipc.Args{
-		Func: "flushTable",
-		Argv: []string{table},
-	}
-	i.Call(args)
 }
