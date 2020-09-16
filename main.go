@@ -22,6 +22,7 @@ var noFlush = flag.Bool("noflush", false, "don't flush tables")
 var resolvConf = flag.String("resolv", "/etc/resolv.conf", "resolv.conf path")
 var verbose = flag.Bool("verbose", false, "verbose")
 var noChroot = flag.Bool("nochroot", false, "disable chroot/setuid(nobody)")
+var dry = flag.Bool("dry", false, "dry run (don't execute pf)")
 
 // are we a resolver process?
 var isResolver = flag.Int("resolver", 0, "internal flag")

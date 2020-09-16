@@ -38,6 +38,10 @@ func startup(args ipc.Args) {
 func flushTable(args ipc.Args) {
 	log.Printf("flushing table %s", args.Argv[0])
 
+	if *dry {
+		return
+	}
+
 	cmd := exec.Command("/sbin/pfctl", "-q", "-t", args.Argv[0], "-T", "flush")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -47,6 +51,10 @@ func flushTable(args ipc.Args) {
 
 func delToTable(args ipc.Args) {
 	if len(args.Argv) <= 1 {
+		return
+	}
+
+	if *dry {
 		return
 	}
 
@@ -64,6 +72,11 @@ func addToTable(args ipc.Args) {
 	if len(args.Argv) <= 1 {
 		return
 	}
+
+	if *dry {
+		return
+	}
+
 	cargs := []string{"-t", args.Argv[0], "-T", "add"}
 	cargs = append(cargs, args.Argv[1:]...)
 
