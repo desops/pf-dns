@@ -47,7 +47,7 @@ func main() {
 	pfIPCInit(i)
 
 	quitSig := make(chan os.Signal, 1)
-	signal.Notify(quitSig, os.Interrupt, os.Kill, syscall.SIGTERM)
+	signal.Notify(quitSig, os.Interrupt, os.Kill, syscall.SIGTERM, syscall.SIGQUIT)
 	reloadSig := make(chan os.Signal, 1)
 	signal.Notify(reloadSig, syscall.SIGHUP)
 
