@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"git.cadurx.com/pf-dns/ipc"
+	"git.cadurx.com/pfdns/ipc"
 )
 
 type updateArgs struct {
