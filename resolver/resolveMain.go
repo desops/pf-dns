@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"syscall"
 
-	"git.cadurx.com/pf_dns_update/ipc"
+	"git.cadurx.com/pf-dns/ipc"
 )
 
 // Main entry point for resolver subprocess

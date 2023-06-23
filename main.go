@@ -10,14 +10,14 @@ import (
 	"os"
 	"os/signal"
 
-	"git.cadurx.com/pf_dns_update/ipc"
-	"git.cadurx.com/pf_dns_update/resolver"
+	"git.cadurx.com/pf-dns/ipc"
+	"git.cadurx.com/pf-dns/resolver"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/kardianos/osext"
 )
 
-var cfgPath = flag.String("cfg", "./pf_dns_update.json", "config file path")
+var cfgPath = flag.String("cfg", "./pf-dns.json", "config file path")
 var noFlush = flag.Bool("noflush", false, "don't flush tables")
 var resolvConf = flag.String("resolv", "/etc/resolv.conf", "resolv.conf path")
 var verbose = flag.Bool("verbose", false, "verbose")

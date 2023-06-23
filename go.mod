@@ -1,4 +1,4 @@
-module git.cadurx.com/pf_dns_update
+module git.cadurx.com/pf-dns
 
 go 1.15
 

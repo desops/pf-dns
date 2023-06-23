@@ -5,7 +5,7 @@ import (
 	"os/exec"
 	"sync"
 
-	"git.cadurx.com/pf_dns_update/ipc"
+	"git.cadurx.com/pf-dns/ipc"
 )
 
 func pfIPCInit(i *ipc.IPC) {
