@@ -1,6 +1,6 @@
 {
 	"Tables": {
-		"allow_http": ["google.com", "yahoo.com", "maps.googleapis.com", "127.0.0.1", "secure.cadurx.com"]
+			"allow_http": ["google.com", "yahoo.com", "maps.googleapis.com", "1.1.1.1"]
 	},
 	"Verbose": 0
 }
